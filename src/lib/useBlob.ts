@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react'
 import { edgeRadius, generateDots, type Dot } from './blobDots'
+import { PointerVoice } from './pointerVoice'
 import type { Voice } from './voice'
 
 const MAX_DPR = 2
@@ -215,18 +216,25 @@ export function useBlob(
       return { dx, dy, dist, angle, baseRadius, inside }
     }
 
+    // Stands in for the voice whenever the mic isn't listening.
+    const pointer = new PointerVoice()
+
     const onPointerMove = (e: PointerEvent) => {
       wake()
+      pointer.move(e.clientX, e.clientY)
       const hit = hitTest(e)
       lookTarget = { x: hit.dx + width / 2, y: hit.dy + height / 2 }
       // A pointing hand over the blob hints that it can be poked.
       if (e.pointerType === 'mouse') canvas.style.cursor = hit.inside ? 'pointer' : ''
     }
     const onPointerEnd = (e: PointerEvent) => {
-      if (e.pointerType !== 'mouse') lookTarget = null
+      const lifted = e.pointerType !== 'mouse'
+      if (lifted) lookTarget = null
+      pointer.up(lifted)
     }
     const onPointerLeave = () => {
       lookTarget = null
+      pointer.up(true)
     }
 
     // Squash amount (0 = round) and its speed. The blob squashes along the
@@ -237,6 +245,7 @@ export function useBlob(
 
     const onPointerDown = (e: PointerEvent) => {
       onPointerMove(e)
+      pointer.down(e.clientX, e.clientY)
       const { dist, angle, baseRadius, inside } = hitTest(e)
       if (!inside) return
       // A poke right in the middle squashes it from the top.
@@ -259,10 +268,14 @@ export function useBlob(
       const baseRadius = Math.min(width, height) * BLOB_RADIUS
 
       voice.update(dt)
+      pointer.update(dt, baseRadius)
+      // The mic leads while it's listening. Otherwise the mouse or finger
+      // drives the blob the same way.
+      const sound = voice.status === 'listening' ? voice : pointer
 
       // Sleep and yawn. Wait SLEEP_AFTER with no activity, yawn, then
       // drift off. Activity resets the timer and cancels it all.
-      if (voice.loudness > WAKE_LOUDNESS) wake()
+      if (sound.loudness > WAKE_LOUDNESS) wake()
       let yawn = 0
       let squintTarget = 0
       if (now - lastActivity < SLEEP_AFTER) {
@@ -292,10 +305,10 @@ export function useBlob(
       const stretchX = 1 - stretch / 2
       const stretchY = 1 + stretch
       const dim = 1 - sleep * ASLEEP_DIM
-      const grow = 1 + voice.loudness * VOICE_GROW
-      const spread = voice.loudness * VOICE_SPREAD
-      const presence = smoothstep(0, VOICE_PRESENT, voice.loudness)
-      const lavender = voice.brightness * presence * VOICE_LAVENDER
+      const grow = 1 + sound.loudness * VOICE_GROW
+      const spread = sound.loudness * VOICE_SPREAD
+      const presence = smoothstep(0, VOICE_PRESENT, sound.loudness)
+      const lavender = sound.brightness * presence * VOICE_LAVENDER
 
       const damping = reduceMotion ? POKE_DAMPING_REDUCED : POKE_DAMPING
       for (let left = dt; left > 0; left -= SPRING_STEP) {
