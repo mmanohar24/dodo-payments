@@ -1,7 +1,9 @@
 import { useEffect, type RefObject } from 'react'
-import { generateDots, type Dot } from './blobDots'
+import { edgeRadius, generateDots, type Dot } from './blobDots'
 
 const MAX_DPR = 2
+// Blob radius as a fraction of the canvas size.
+const BLOB_RADIUS = 0.38
 const DOT_COUNT = 1500
 const DOT_RADIUS = 1.6
 
@@ -38,6 +40,18 @@ const LOOK_MAX_Y = 0.25
 const LOOK_FULL_REACH = 1.5
 // How quickly the pupils catch up with the pointer, per second.
 const LOOK_EASE = 6
+
+// Poke: a damped spring on how squashed the blob is. Low damping lets it
+// wobble a few times like jelly before it settles.
+const POKE_STIFFNESS = 180
+const POKE_DAMPING = 7
+const POKE_IMPULSE = 2.4
+const POKE_MAX_SQUASH = 0.3
+// With reduced motion: a softer push that settles without wobbling.
+const POKE_DAMPING_REDUCED = 2 * Math.sqrt(POKE_STIFFNESS)
+const POKE_IMPULSE_REDUCED = 1.2
+// Small steps keep the spring stable even on a slow frame.
+const SPRING_STEP = 1 / 120
 
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t
@@ -132,8 +146,29 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>) {
     const onPointerLeave = () => {
       lookTarget = null
     }
+
+    // Squash amount (0 = round) and its speed. The blob squashes along the
+    // line from its centre to where it was poked.
+    let squash = 0
+    let squashVel = 0
+    let pokeAngle = Math.PI / 2
+
+    const onPointerDown = (e: PointerEvent) => {
+      onPointerMove(e)
+      const rect = canvas.getBoundingClientRect()
+      const dx = e.clientX - rect.left - width / 2
+      const dy = e.clientY - rect.top - height / 2
+      const dist = Math.hypot(dx, dy)
+      const angle = Math.atan2(dy, dx)
+      const baseRadius = Math.min(width, height) * BLOB_RADIUS
+      if (dist > baseRadius * edgeRadius(angle)) return
+      // A poke right in the middle squashes it from the top.
+      pokeAngle = dist > baseRadius * 0.15 ? angle : Math.PI / 2
+      squashVel += reduceMotion ? POKE_IMPULSE_REDUCED : POKE_IMPULSE
+    }
+
     window.addEventListener('pointermove', onPointerMove)
-    window.addEventListener('pointerdown', onPointerMove)
+    window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('pointerup', onPointerEnd)
     window.addEventListener('pointercancel', onPointerEnd)
     document.documentElement.addEventListener('mouseleave', onPointerLeave)
@@ -145,17 +180,42 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>) {
       lastFrame = now
       const cx = width / 2
       const cy = height / 2
-      const baseRadius = Math.min(width, height) * 0.38
+      const baseRadius = Math.min(width, height) * BLOB_RADIUS
 
       const breathe = reduceMotion ? 0 : Math.sin(t * 0.6) * 0.035
       const scale = 1 + breathe
 
+      const damping = reduceMotion ? POKE_DAMPING_REDUCED : POKE_DAMPING
+      for (let left = dt; left > 0; left -= SPRING_STEP) {
+        const step = Math.min(left, SPRING_STEP)
+        squashVel += (-POKE_STIFFNESS * squash - damping * squashVel) * step
+        squash += squashVel * step
+      }
+      squash = Math.min(Math.max(squash, -POKE_MAX_SQUASH), POKE_MAX_SQUASH)
+
+      // Squash along the poke line and bulge across it, keeping the area
+      // roughly the same, like pressing on jelly.
+      const pokeCos = Math.cos(pokeAngle)
+      const pokeSin = Math.sin(pokeAngle)
+      const along = 1 - squash
+      const across = 1 + squash
+      const squish = (ox: number, oy: number): [number, number] => {
+        const a = (ox * pokeCos + oy * pokeSin) * along
+        const b = (oy * pokeCos - ox * pokeSin) * across
+        return [cx + a * pokeCos - b * pokeSin, cy + a * pokeSin + b * pokeCos]
+      }
+
       ctx.clearRect(0, 0, width, height)
 
       for (const dot of dots) {
+        // Same as squish(), inlined because it runs for every dot.
         const r = dot.distance * baseRadius * scale
-        const x = cx + Math.cos(dot.angle) * r
-        const y = cy + Math.sin(dot.angle) * r
+        const ox = Math.cos(dot.angle) * r
+        const oy = Math.sin(dot.angle) * r
+        const a = (ox * pokeCos + oy * pokeSin) * along
+        const b = (oy * pokeCos - ox * pokeSin) * across
+        const x = cx + a * pokeCos - b * pokeSin
+        const y = cy + a * pokeSin + b * pokeCos
         ctx.fillStyle = blobColor(dot.distance)
         ctx.beginPath()
         ctx.arc(x, y, DOT_RADIUS, 0, Math.PI * 2)
@@ -214,21 +274,22 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>) {
       const highlightAlpha = smoothstep(0.5, 0.9, openness)
 
       for (const dir of [-1, 1]) {
-        const ex = cx + dir * eyeSpacing
+        // The eyes ride along with the squish so they stay on the face.
+        const [ex, ey] = squish(dir * eyeSpacing, eyeY - cy)
 
         const patchRadius = eyeRadius * EYE_PATCH_RADIUS
-        const patch = ctx.createRadialGradient(ex, eyeY, 0, ex, eyeY, patchRadius)
+        const patch = ctx.createRadialGradient(ex, ey, 0, ex, ey, patchRadius)
         patch.addColorStop(0, patchColor)
         patch.addColorStop(0.65, patchColor)
         patch.addColorStop(1, patchEdge)
         ctx.fillStyle = patch
         ctx.beginPath()
-        ctx.arc(ex, eyeY, patchRadius, 0, Math.PI * 2)
+        ctx.arc(ex, ey, patchRadius, 0, Math.PI * 2)
         ctx.fill()
 
         // The pupil, lid and highlight move together; the patch stays put.
         const px = ex + pupilDx
-        const py = eyeY + pupilDy
+        const py = ey + pupilDy
 
         // The lid comes down from the top: the eye's bottom edge stays put.
         const ry = eyeRadius * openness
@@ -279,7 +340,7 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>) {
       window.removeEventListener('resize', resize)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('pointermove', onPointerMove)
-      window.removeEventListener('pointerdown', onPointerMove)
+      window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('pointerup', onPointerEnd)
       window.removeEventListener('pointercancel', onPointerEnd)
       document.documentElement.removeEventListener('mouseleave', onPointerLeave)
