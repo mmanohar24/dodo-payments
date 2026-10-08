@@ -22,6 +22,8 @@
   width: min(70vmin, 480px);
   height: min(70vmin, 480px);
   display: block;
+  /* Quick repeated taps poke the blob instead of zooming the page. */
+  touch-action: manipulation;
 }
 
 .footer {
