@@ -8,9 +8,11 @@ export type VoiceStatus = 'idle' | 'starting' | 'listening' | 'denied' | 'unavai
 const QUIET_DB = -55
 const LOUD_DB = -15
 // Brightness: spectral centroid in Hz, mapped on a log scale so a low hum
-// is 0 and a high, airy voice is 1.
-const DARK_HZ = 400
-const BRIGHT_HZ = 3500
+// is 0 and a high, airy voice is 1. Spoken vowels mostly land between
+// about 700 Hz and 1.2 kHz, so the range is kept tight around that; a
+// wider one left normal talking stuck near the bottom.
+const DARK_HZ = 600
+const BRIGHT_HZ = 1800
 const MIN_HZ = 80
 const MAX_HZ = 8000
 // Below this loudness it's just room noise, so brightness holds still.
