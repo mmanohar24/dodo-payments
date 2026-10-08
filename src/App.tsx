@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Chime } from './lib/chime'
 import { useBlob } from './lib/useBlob'
 import { Voice, type VoiceStatus } from './lib/voice'
 import './App.css'
@@ -16,9 +17,23 @@ function App() {
   const [voice] = useState(() => new Voice())
   const [status, setStatus] = useState<VoiceStatus>('idle')
   const listening = status === 'listening'
+  const [chime] = useState(() => new Chime())
+  const [muted, setMuted] = useState(chime.muted)
 
-  useBlob(canvasRef, voice)
+  useBlob(canvasRef, voice, () => chime.play())
   useEffect(() => () => voice.stop(), [voice])
+
+  // Sound can only start after a click, tap or key press, so get the chime
+  // ready on the first one.
+  useEffect(() => {
+    const unlock = () => chime.unlock()
+    window.addEventListener('pointerdown', unlock)
+    window.addEventListener('keydown', unlock)
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+  }, [chime])
 
   const toggleMic = async () => {
     if (listening) {
@@ -26,8 +41,16 @@ function App() {
       setStatus(voice.status)
       return
     }
+    chime.unlock()
     setStatus('starting')
-    setStatus(await voice.start())
+    const next = await voice.start()
+    setStatus(next)
+    if (next === 'listening') chime.play()
+  }
+
+  const toggleMute = () => {
+    chime.setMuted(!muted)
+    setMuted(!muted)
   }
 
   return (
@@ -55,12 +78,28 @@ function App() {
               />
             </svg>
           </button>
-          <button type="button" className="mute-button" aria-label="Mute sound">
+          <button
+            type="button"
+            className="mute-button"
+            aria-label={muted ? 'Turn sound on' : 'Mute sound'}
+            aria-pressed={muted}
+            onClick={toggleMute}
+          >
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M3 10v4h4l5 5V5L7 10H3Zm13.5 2a4.5 4.5 0 0 0-2.5-4.03v8.06A4.5 4.5 0 0 0 16.5 12Z"
-              />
+              <path fill="currentColor" d="M3 10v4h4l5 5V5L7 10H3Z" />
+              {muted ? (
+                <path
+                  d="m15.5 9.5 5 5m0-5-5 5"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              ) : (
+                <path
+                  fill="currentColor"
+                  d="M16.5 12a4.5 4.5 0 0 0-2.5-4.03v8.06A4.5 4.5 0 0 0 16.5 12Z"
+                />
+              )}
             </svg>
           </button>
         </div>
