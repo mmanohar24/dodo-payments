@@ -13,6 +13,7 @@ const DOT_RADIUS = 1.6
 
 const PEACH = { r: 0xff, g: 0xb9, b: 0x96 }
 const PINK = { r: 0xff, g: 0x8f, b: 0xa3 }
+const LAVENDER = { r: 0xb8, g: 0xa1, b: 0xff }
 const EYE_COLOR = '#0b1026'
 const EYE_HIGHLIGHT = '#fff7f2'
 
@@ -61,15 +62,22 @@ const SPRING_STEP = 1 / 120
 // drifts outward by up to VOICE_SPREAD so the dots loosen apart.
 const VOICE_GROW = 0.18
 const VOICE_SPREAD = 0.35
+// Colour: a bright, high voice tints the blob up to this far toward
+// lavender. The tint only shows while you're making sound, so the blob
+// drifts back to peach and pink when it's quiet.
+const VOICE_LAVENDER = 0.85
+const VOICE_PRESENT = 0.3
 
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t
 }
 
-function blobColor(t: number, alpha = 1) {
-  const r = Math.round(lerp(PEACH.r, PINK.r, t))
-  const g = Math.round(lerp(PEACH.g, PINK.g, t))
-  const b = Math.round(lerp(PEACH.b, PINK.b, t))
+// t: 0 at the centre (peach) to 1 at the edge (pink).
+// lavender: 0 to 1, how far a high voice has tinted it toward lavender.
+function blobColor(t: number, alpha = 1, lavender = 0) {
+  const r = Math.round(lerp(lerp(PEACH.r, PINK.r, t), LAVENDER.r, lavender))
+  const g = Math.round(lerp(lerp(PEACH.g, PINK.g, t), LAVENDER.g, lavender))
+  const b = Math.round(lerp(lerp(PEACH.b, PINK.b, t), LAVENDER.b, lavender))
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
@@ -207,6 +215,8 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
       voice.update(dt)
       const grow = 1 + voice.loudness * VOICE_GROW
       const spread = voice.loudness * VOICE_SPREAD
+      const presence = smoothstep(0, VOICE_PRESENT, voice.loudness)
+      const lavender = voice.brightness * presence * VOICE_LAVENDER
 
       const damping = reduceMotion ? POKE_DAMPING_REDUCED : POKE_DAMPING
       for (let left = dt; left > 0; left -= SPRING_STEP) {
@@ -239,7 +249,7 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
         const b = (oy * pokeCos - ox * pokeSin) * across
         const x = cx + a * pokeCos - b * pokeSin
         const y = cy + a * pokeSin + b * pokeCos
-        ctx.fillStyle = blobColor(dot.distance)
+        ctx.fillStyle = blobColor(dot.distance, 1, lavender)
         ctx.beginPath()
         ctx.arc(x, y, DOT_RADIUS, 0, Math.PI * 2)
         ctx.fill()
@@ -268,8 +278,8 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
       const eyeY = cy - baseRadius * EYE_RAISE
       const eyeSpacing = baseRadius * EYE_SPACING
       const eyeDistance = Math.hypot(EYE_SPACING, EYE_RAISE)
-      const patchColor = blobColor(eyeDistance)
-      const patchEdge = blobColor(eyeDistance, 0)
+      const patchColor = blobColor(eyeDistance, 1, lavender)
+      const patchEdge = blobColor(eyeDistance, 0, lavender)
 
       // Open eye fades into a lid line as it nears shut, so a closed eye
       // reads as closed rather than vanishing.
