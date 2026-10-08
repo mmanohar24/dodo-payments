@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 import { edgeRadius, generateDots, type Dot } from './blobDots'
 import type { Voice } from './voice'
 
@@ -130,7 +130,18 @@ function nextBlinkDelay() {
   return BLINK_MIN_GAP + Math.random() * (BLINK_MAX_GAP - BLINK_MIN_GAP)
 }
 
-export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: Voice) {
+// onWake runs when the blob wakes up from being fully asleep.
+export function useBlob(
+  canvasRef: RefObject<HTMLCanvasElement | null>,
+  voice: Voice,
+  onWake?: () => void,
+) {
+  // Kept in a ref so a new callback doesn't restart the animation.
+  const onWakeRef = useRef(onWake)
+  useEffect(() => {
+    onWakeRef.current = onWake
+  }, [onWake])
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -255,6 +266,7 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
       let yawn = 0
       let squintTarget = 0
       if (now - lastActivity < SLEEP_AFTER) {
+        if (asleep) onWakeRef.current?.()
         yawnStart = -1
         asleep = false
       } else if (!asleep) {
