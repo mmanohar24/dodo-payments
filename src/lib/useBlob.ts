@@ -68,6 +68,27 @@ const VOICE_SPREAD = 0.35
 const VOICE_LAVENDER = 0.85
 const VOICE_PRESENT = 0.3
 
+// Sleep: after SLEEP_AFTER ms with no voice, click or mouse move, the blob
+// yawns (eyes squint, body stretches up a little), then slowly shrinks,
+// dims and closes its eyes. Any activity wakes it.
+const SLEEP_AFTER = 5000
+const YAWN_DURATION = 2200
+const YAWN_SQUINT = 0.7
+const YAWN_STRETCH = 0.07
+const ASLEEP_SHRINK = 0.12
+const ASLEEP_DIM = 0.45
+// How fast it drifts off and wakes up, per second.
+const FALL_ASLEEP_RATE = 0.8
+const WAKE_RATE = 4
+const SQUINT_EASE = 6
+// Loudness that counts as someone talking, above room noise.
+const WAKE_LOUDNESS = 0.2
+// Breathing: speed (radians per second) and depth, awake and asleep.
+const BREATHE_SPEED = 0.6
+const BREATHE_SPEED_ASLEEP = 0.35
+const BREATHE_DEPTH = 0.035
+const BREATHE_DEPTH_ASLEEP = 0.05
+
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t
 }
@@ -98,6 +119,11 @@ function blinkOpenness(elapsed: number) {
     return 1 - (1 - p) * (1 - p)
   }
   return 1
+}
+
+// Yawn strength over the yawn (p from 0 to 1): open up, hold, let go.
+function yawnCurve(p: number) {
+  return smoothstep(0, 0.35, p) * (1 - smoothstep(0.65, 1, p))
 }
 
 function nextBlinkDelay() {
@@ -131,6 +157,18 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
 
     let rafId = 0
     const startTime = performance.now()
+
+    // Sleep state. lastActivity is the last voice, click or mouse move.
+    let lastActivity = startTime
+    let yawnStart = -1
+    let asleep = false
+    let sleep = 0 // 0 awake, 1 fully asleep (eased)
+    let squint = 0 // 0 to YAWN_SQUINT (eased)
+    let breathePhase = 0
+
+    const wake = () => {
+      lastActivity = performance.now()
+    }
 
     let nextBlinkAt = startTime + nextBlinkDelay()
     let blinkStart = -1
@@ -167,6 +205,7 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
     }
 
     const onPointerMove = (e: PointerEvent) => {
+      wake()
       const hit = hitTest(e)
       lookTarget = { x: hit.dx + width / 2, y: hit.dy + height / 2 }
       // A pointing hand over the blob hints that it can be poked.
@@ -201,7 +240,6 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
     document.documentElement.addEventListener('mouseleave', onPointerLeave)
 
     function frame(now: number) {
-      const t = (now - startTime) / 1000
       // Capped so the pupils don't jump after the tab was hidden.
       const dt = Math.min((now - lastFrame) / 1000, 0.1)
       lastFrame = now
@@ -209,10 +247,39 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
       const cy = height / 2
       const baseRadius = Math.min(width, height) * BLOB_RADIUS
 
-      const breathe = reduceMotion ? 0 : Math.sin(t * 0.6) * 0.035
-      const scale = 1 + breathe
-
       voice.update(dt)
+
+      // Sleep and yawn. Wait SLEEP_AFTER with no activity, yawn, then
+      // drift off. Activity resets the timer and cancels it all.
+      if (voice.loudness > WAKE_LOUDNESS) wake()
+      let yawn = 0
+      let squintTarget = 0
+      if (now - lastActivity < SLEEP_AFTER) {
+        yawnStart = -1
+        asleep = false
+      } else if (!asleep) {
+        if (yawnStart < 0) yawnStart = now
+        const p = (now - yawnStart) / YAWN_DURATION
+        yawn = yawnCurve(Math.min(p, 1))
+        // Eyes stay heavy after the yawn instead of popping back open.
+        squintTarget = YAWN_SQUINT * smoothstep(0, 0.35, p)
+        if (p >= 1) asleep = true
+      }
+      if (asleep) squintTarget = YAWN_SQUINT
+      sleep += ((asleep ? 1 : 0) - sleep) * (1 - Math.exp(-dt * (asleep ? FALL_ASLEEP_RATE : WAKE_RATE)))
+      squint += (squintTarget - squint) * (1 - Math.exp(-dt * SQUINT_EASE))
+
+      // Breathing slows and deepens as it sleeps.
+      breathePhase += dt * lerp(BREATHE_SPEED, BREATHE_SPEED_ASLEEP, sleep)
+      const breatheDepth = lerp(BREATHE_DEPTH, BREATHE_DEPTH_ASLEEP, sleep)
+      const breathe = reduceMotion ? 0 : Math.sin(breathePhase) * breatheDepth
+      const shrink = reduceMotion ? 1 : 1 - sleep * ASLEEP_SHRINK
+      const scale = (1 + breathe) * shrink
+      // The yawn stretches the blob up and pulls it in at the sides.
+      const stretch = reduceMotion ? 0 : yawn * YAWN_STRETCH
+      const stretchX = 1 - stretch / 2
+      const stretchY = 1 + stretch
+      const dim = 1 - sleep * ASLEEP_DIM
       const grow = 1 + voice.loudness * VOICE_GROW
       const spread = voice.loudness * VOICE_SPREAD
       const presence = smoothstep(0, VOICE_PRESENT, voice.loudness)
@@ -239,12 +306,13 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
       }
 
       ctx.clearRect(0, 0, width, height)
+      ctx.globalAlpha = dim
 
       for (const dot of dots) {
         // Same as squish(), inlined because it runs for every dot.
         const r = dot.distance * baseRadius * scale * grow * (1 + spread * dot.spread)
-        const ox = Math.cos(dot.angle) * r
-        const oy = Math.sin(dot.angle) * r
+        const ox = Math.cos(dot.angle) * r * stretchX
+        const oy = Math.sin(dot.angle) * r * stretchY
         const a = (ox * pokeCos + oy * pokeSin) * along
         const b = (oy * pokeCos - ox * pokeSin) * across
         const x = cx + a * pokeCos - b * pokeSin
@@ -256,7 +324,11 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
       }
 
       // Blink timing: wait for the next scheduled blink, play it, then
-      // occasionally follow up with a quick second blink.
+      // occasionally follow up with a quick second blink. No blinking
+      // while yawning or asleep.
+      if (yawnStart >= 0 || asleep) {
+        nextBlinkAt = Math.max(nextBlinkAt, now + BLINK_MIN_GAP)
+      }
       if (now >= nextBlinkAt && blinkStart < 0) {
         blinkStart = now
       }
@@ -273,6 +345,8 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
         }
       }
       if (reduceMotion) openness = 1
+      // Squint from the yawn, then shut as it falls asleep.
+      openness *= (1 - squint) * (1 - smoothstep(0, 0.6, sleep))
 
       const eyeRadius = baseRadius * EYE_RADIUS
       const eyeY = cy - baseRadius * EYE_RAISE
@@ -309,13 +383,16 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
       for (const dir of [-1, 1]) {
         // The eyes ride along with the squish so they stay on the face.
         // They also move apart a little as the blob grows with your voice.
-        const [ex, ey] = squish(dir * eyeSpacing * grow, (eyeY - cy) * grow)
+        // And they follow the yawn stretch and the sleepy shrink.
+        const size = grow * scale
+        const [ex, ey] = squish(dir * eyeSpacing * size * stretchX, (eyeY - cy) * size * stretchY)
 
         const patchRadius = eyeRadius * EYE_PATCH_RADIUS
         const patch = ctx.createRadialGradient(ex, ey, 0, ex, ey, patchRadius)
         patch.addColorStop(0, patchColor)
         patch.addColorStop(0.65, patchColor)
         patch.addColorStop(1, patchEdge)
+        ctx.globalAlpha = dim
         ctx.fillStyle = patch
         ctx.beginPath()
         ctx.arc(ex, ey, patchRadius, 0, Math.PI * 2)
@@ -330,7 +407,7 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
         const eyeCy = py + eyeRadius - ry
 
         if (eyeAlpha > 0) {
-          ctx.globalAlpha = eyeAlpha
+          ctx.globalAlpha = eyeAlpha * dim
           ctx.fillStyle = EYE_COLOR
           ctx.beginPath()
           ctx.ellipse(px, eyeCy, eyeRadius, Math.max(ry, 0.5), 0, 0, Math.PI * 2)
@@ -338,6 +415,8 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
         }
 
         if (eyeAlpha < 1) {
+          // Not dimmed: it's dark already, and a faint lid on a dimmed
+          // patch made it hard to tell the eyes were shut.
           ctx.globalAlpha = 1 - eyeAlpha
           ctx.strokeStyle = EYE_COLOR
           ctx.lineWidth = eyeRadius * EYE_LID_WIDTH
@@ -348,7 +427,7 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: V
         }
 
         if (highlightAlpha > 0) {
-          ctx.globalAlpha = highlightAlpha
+          ctx.globalAlpha = highlightAlpha * dim
           ctx.fillStyle = EYE_HIGHLIGHT
           ctx.beginPath()
           ctx.arc(
