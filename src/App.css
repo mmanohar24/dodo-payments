@@ -7,6 +7,8 @@
   gap: 24px;
   padding: 24px env(safe-area-inset-right) max(24px, env(safe-area-inset-bottom))
     env(safe-area-inset-left);
+  /* The canvas reaches past the stage, so clip it at the screen edge. */
+  overflow: hidden;
 }
 
 .stage {
@@ -19,14 +21,24 @@
 }
 
 .blob-canvas {
-  width: min(70vmin, 480px);
-  height: min(70vmin, 480px);
+  /* The blob's resting size on screen. */
+  --blob-box: min(70vmin, 480px);
+  /* The canvas is drawn 1.5x bigger than that, with negative margins so the
+     layout stays the same. The spare room lets the blob grow with your
+     voice and squish without being cut off. Keep in step with
+     CANVAS_OVERSCAN in useBlob.ts. */
+  width: calc(var(--blob-box) * 1.5);
+  height: calc(var(--blob-box) * 1.5);
+  margin: calc(var(--blob-box) * -0.25);
   display: block;
   /* Quick repeated taps poke the blob instead of zooming the page. */
   touch-action: manipulation;
 }
 
 .footer {
+  /* Sits above the canvas's spare room so the buttons stay clickable. */
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -77,6 +89,12 @@
 .mic-button:hover,
 .mute-button:hover {
   background: #232a5c;
+}
+
+/* Listening: the button lights up in the blob's pink. */
+.mic-button[aria-pressed='true'] {
+  background: #ff8fa3;
+  color: #0b1026;
 }
 
 .mic-button:active,

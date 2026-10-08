@@ -1,11 +1,34 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useBlob } from './lib/useBlob'
+import { Voice, type VoiceStatus } from './lib/voice'
 import './App.css'
+
+const HINTS: Record<VoiceStatus, string> = {
+  idle: 'say something',
+  starting: 'say something',
+  listening: 'say something',
+  denied: "mic is blocked, that's okay",
+  unavailable: "couldn't find a mic",
+}
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [voice] = useState(() => new Voice())
+  const [status, setStatus] = useState<VoiceStatus>('idle')
+  const listening = status === 'listening'
 
-  useBlob(canvasRef)
+  useBlob(canvasRef, voice)
+  useEffect(() => () => voice.stop(), [voice])
+
+  const toggleMic = async () => {
+    if (listening) {
+      voice.stop()
+      setStatus(voice.status)
+      return
+    }
+    setStatus('starting')
+    setStatus(await voice.start())
+  }
 
   return (
     <div className="app">
@@ -14,9 +37,17 @@ function App() {
       </div>
 
       <div className="footer">
-        <p className="hint">say something</p>
+        <p className="hint" aria-live="polite">
+          {HINTS[status]}
+        </p>
         <div className="controls">
-          <button type="button" className="mic-button" aria-label="Start listening">
+          <button
+            type="button"
+            className="mic-button"
+            aria-label={listening ? 'Stop listening' : 'Start listening'}
+            aria-pressed={listening}
+            onClick={toggleMic}
+          >
             <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
               <path
                 fill="currentColor"
