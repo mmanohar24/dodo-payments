@@ -1,9 +1,13 @@
 import { useEffect, type RefObject } from 'react'
 import { edgeRadius, generateDots, type Dot } from './blobDots'
+import type { Voice } from './voice'
 
 const MAX_DPR = 2
+// The canvas is this much bigger than the blob's resting box (see
+// .blob-canvas in App.css), leaving room to grow and squish.
+const CANVAS_OVERSCAN = 1.5
 // Blob radius as a fraction of the canvas size.
-const BLOB_RADIUS = 0.38
+const BLOB_RADIUS = 0.38 / CANVAS_OVERSCAN
 const DOT_COUNT = 1500
 const DOT_RADIUS = 1.6
 
@@ -53,6 +57,11 @@ const POKE_IMPULSE_REDUCED = 1.2
 // Small steps keep the spring stable even on a slow frame.
 const SPRING_STEP = 1 / 120
 
+// Voice: at full loudness the blob grows by VOICE_GROW, and each dot also
+// drifts outward by up to VOICE_SPREAD so the dots loosen apart.
+const VOICE_GROW = 0.18
+const VOICE_SPREAD = 0.35
+
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t
 }
@@ -87,7 +96,7 @@ function nextBlinkDelay() {
   return BLINK_MIN_GAP + Math.random() * (BLINK_MAX_GAP - BLINK_MIN_GAP)
 }
 
-export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>) {
+export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>, voice: Voice) {
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -195,6 +204,10 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>) {
       const breathe = reduceMotion ? 0 : Math.sin(t * 0.6) * 0.035
       const scale = 1 + breathe
 
+      voice.update(dt)
+      const grow = 1 + voice.loudness * VOICE_GROW
+      const spread = voice.loudness * VOICE_SPREAD
+
       const damping = reduceMotion ? POKE_DAMPING_REDUCED : POKE_DAMPING
       for (let left = dt; left > 0; left -= SPRING_STEP) {
         const step = Math.min(left, SPRING_STEP)
@@ -219,7 +232,7 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>) {
 
       for (const dot of dots) {
         // Same as squish(), inlined because it runs for every dot.
-        const r = dot.distance * baseRadius * scale
+        const r = dot.distance * baseRadius * scale * grow * (1 + spread * dot.spread)
         const ox = Math.cos(dot.angle) * r
         const oy = Math.sin(dot.angle) * r
         const a = (ox * pokeCos + oy * pokeSin) * along
@@ -285,7 +298,8 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>) {
 
       for (const dir of [-1, 1]) {
         // The eyes ride along with the squish so they stay on the face.
-        const [ex, ey] = squish(dir * eyeSpacing, eyeY - cy)
+        // They also move apart a little as the blob grows with your voice.
+        const [ex, ey] = squish(dir * eyeSpacing * grow, (eyeY - cy) * grow)
 
         const patchRadius = eyeRadius * EYE_PATCH_RADIUS
         const patch = ctx.createRadialGradient(ex, ey, 0, ex, ey, patchRadius)
@@ -355,5 +369,5 @@ export function useBlob(canvasRef: RefObject<HTMLCanvasElement | null>) {
       window.removeEventListener('pointercancel', onPointerEnd)
       document.documentElement.removeEventListener('mouseleave', onPointerLeave)
     }
-  }, [canvasRef])
+  }, [canvasRef, voice])
 }

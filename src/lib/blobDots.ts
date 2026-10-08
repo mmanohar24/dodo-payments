@@ -1,6 +1,7 @@
 export interface Dot {
   angle: number
   distance: number // 0-1, fraction of the blob's radius at this angle
+  spread: number // 0-1, how far this dot drifts out when the blob is loud
 }
 
 // A few sine harmonics layered on the edge radius give the blob a soft,
@@ -26,7 +27,7 @@ export function generateDots(count: number): Dot[] {
     const maxR = edgeRadius(angle)
     // sqrt keeps the dots evenly spread by area, not bunched at the center
     const distance = Math.sqrt(Math.random()) * maxR
-    dots.push({ angle, distance })
+    dots.push({ angle, distance, spread: Math.random() })
   }
   return dots
 }
