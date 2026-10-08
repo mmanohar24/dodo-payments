@@ -18,11 +18,17 @@
   align-items: center;
   justify-content: center;
   min-height: 0;
+  /* Dragging a finger here plays with the blob instead of scrolling or
+     zooming. Without this the browser cancels the drag after a moment.
+     Pinch zoom still works over the text and buttons. */
+  touch-action: none;
 }
 
 .blob-canvas {
-  /* The blob's resting size on screen. */
-  --blob-box: min(70vmin, 480px);
+  /* The blob's resting size on screen. It also leaves room for the text
+     and buttons below (about 190px with spacing), so on a short screen
+     like a phone held sideways they stay in view. */
+  --blob-box: min(70vmin, 480px, calc(100svh - 190px));
   /* The canvas is drawn 1.5x bigger than that, with negative margins so the
      layout stays the same. The spare room lets the blob grow with your
      voice and squish without being cut off. Keep in step with
@@ -31,8 +37,9 @@
   height: calc(var(--blob-box) * 1.5);
   margin: calc(var(--blob-box) * -0.25);
   display: block;
-  /* Quick repeated taps poke the blob instead of zooming the page. */
-  touch-action: manipulation;
+  /* Taps and drags on the blob go to the blob, never to scrolling or
+     zooming the page. */
+  touch-action: none;
 }
 
 .footer {

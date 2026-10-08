@@ -11,6 +11,9 @@ const CANVAS_OVERSCAN = 1.5
 const BLOB_RADIUS = 0.38 / CANVAS_OVERSCAN
 const DOT_COUNT = 1500
 const DOT_RADIUS = 1.6
+// Dots are drawn in this many colour bands, one fill per band, instead of
+// one fill per dot. The steps between bands are too small to see.
+const COLOR_BANDS = 16
 
 const PEACH = { r: 0xff, g: 0xb9, b: 0x96 }
 const PINK = { r: 0xff, g: 0x8f, b: 0xa3 }
@@ -149,7 +152,23 @@ export function useBlob(
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // Group the dots into colour bands by distance from the centre, and work
+    // out each dot's direction once instead of every frame.
     const dots: Dot[] = generateDots(DOT_COUNT)
+    const maxDistance = Math.max(...dots.map((dot) => dot.distance))
+    const bands = Array.from({ length: COLOR_BANDS }, (_, i) => ({
+      distance: ((i + 0.5) / COLOR_BANDS) * maxDistance,
+      dots: [] as { cos: number; sin: number; distance: number; spread: number }[],
+    }))
+    for (const dot of dots) {
+      const i = Math.min(Math.floor((dot.distance / maxDistance) * COLOR_BANDS), COLOR_BANDS - 1)
+      bands[i].dots.push({
+        cos: Math.cos(dot.angle),
+        sin: Math.sin(dot.angle),
+        distance: dot.distance,
+        spread: dot.spread,
+      })
+    }
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     let width = 0
@@ -333,18 +352,21 @@ export function useBlob(
       ctx.clearRect(0, 0, width, height)
       ctx.globalAlpha = dim
 
-      for (const dot of dots) {
-        // Same as squish(), inlined because it runs for every dot.
-        const r = dot.distance * baseRadius * scale * grow * (1 + spread * dot.spread)
-        const ox = Math.cos(dot.angle) * r * stretchX
-        const oy = Math.sin(dot.angle) * r * stretchY
-        const a = (ox * pokeCos + oy * pokeSin) * along
-        const b = (oy * pokeCos - ox * pokeSin) * across
-        const x = cx + a * pokeCos - b * pokeSin
-        const y = cy + a * pokeSin + b * pokeCos
-        ctx.fillStyle = blobColor(dot.distance, 1, lavender)
+      for (const band of bands) {
+        ctx.fillStyle = blobColor(band.distance, 1, lavender)
         ctx.beginPath()
-        ctx.arc(x, y, DOT_RADIUS, 0, Math.PI * 2)
+        for (const dot of band.dots) {
+          // Same as squish(), inlined because it runs for every dot.
+          const r = dot.distance * baseRadius * scale * grow * (1 + spread * dot.spread)
+          const ox = dot.cos * r * stretchX
+          const oy = dot.sin * r * stretchY
+          const a = (ox * pokeCos + oy * pokeSin) * along
+          const b = (oy * pokeCos - ox * pokeSin) * across
+          const x = cx + a * pokeCos - b * pokeSin
+          const y = cy + a * pokeSin + b * pokeCos
+          ctx.moveTo(x + DOT_RADIUS, y)
+          ctx.arc(x, y, DOT_RADIUS, 0, Math.PI * 2)
+        }
         ctx.fill()
       }
 
