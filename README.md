@@ -1,21 +1,23 @@
 # Hush
 
-A small, sleepy blob that listens.
+Hi! This is Hush, a little blob that listens.
 
-Hush is a soft blob made of dots, with two eyes and no mouth. Talk to it and it grows and its dots loosen. A higher voice tints it lavender. Poke it and it wobbles like jelly. Leave it alone for a few seconds and it yawns and falls asleep. Any sound, click or mouse move wakes it with a quiet chime. No mic? Moving or dragging the mouse plays it the same way.
+Try it here: https://hush-psi-two.vercel.app/
+
+It's a bunch of dots with two sleepy eyes. Talk to it and it puffs up. Squeak at it and it turns a bit lavender. Poke it and it wobbles like jelly. Leave it alone and it yawns and dozes off, then wakes with a tiny chime when you come back.
+
+I wanted it to feel calm, like a pet that's half asleep. It only asks for your mic when you tap the button. If you'd rather not, that's fine. Just move or drag your mouse instead.
 
 ## How I made it
 
-I built this with Claude Code. The idea, the look, the sleep and yawn moment, and what to leave out were my calls. Claude wrote most of the code. I tested each step and pushed back when something felt off, like eyes that were hard to see or a colour shift that was too faint.
+I made this with Claude Code, which wrote most of the code. The idea was mine. So were the look, the yawn and nap, and what to leave out. I tested every step and asked for fixes when something felt off. At first you could barely see it blink.
 
-It's just React, TypeScript, Vite and a plain 2D canvas, with no extra libraries.
+## What I'd try next
 
-## What I'd explore next
-
-- More voices making more blobs
-- Reacting to music
-- Different moods for a whisper and a shout
-- Dragging to stretch it
+- A blob for every voice
+- Dancing along to music
+- Acting different for a whisper and a shout
+- Dragging it to stretch it
 
 ## Run it
 
