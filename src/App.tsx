@@ -4,12 +4,16 @@ import { useBlob } from './lib/useBlob'
 import { Voice, type VoiceStatus } from './lib/voice'
 import './App.css'
 
+// Without a mic, point people to the mouse, or to dragging on a phone.
+const touch = window.matchMedia('(pointer: coarse)').matches
+const NO_MIC = touch ? 'drag around instead' : 'wiggle the mouse instead'
+
 const HINTS: Record<VoiceStatus, string> = {
   idle: 'say something',
   starting: 'say something',
   listening: 'say something',
-  denied: "mic is blocked, that's okay",
-  unavailable: "couldn't find a mic",
+  denied: `no mic, that's okay. ${NO_MIC}`,
+  unavailable: `couldn't find a mic. ${NO_MIC}`,
 }
 
 function App() {

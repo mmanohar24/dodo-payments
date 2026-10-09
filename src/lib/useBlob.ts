@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react'
 import { edgeRadius, generateDots, type Dot } from './blobDots'
+import { PointerVoice } from './pointerVoice'
 import type { Voice } from './voice'
 
 const MAX_DPR = 2
@@ -10,6 +11,9 @@ const CANVAS_OVERSCAN = 1.5
 const BLOB_RADIUS = 0.38 / CANVAS_OVERSCAN
 const DOT_COUNT = 1500
 const DOT_RADIUS = 1.6
+// Dots are drawn in this many colour bands, one fill per band, instead of
+// one fill per dot. The steps between bands are too small to see.
+const COLOR_BANDS = 16
 
 const PEACH = { r: 0xff, g: 0xb9, b: 0x96 }
 const PINK = { r: 0xff, g: 0x8f, b: 0xa3 }
@@ -148,7 +152,23 @@ export function useBlob(
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // Group the dots into colour bands by distance from the centre, and work
+    // out each dot's direction once instead of every frame.
     const dots: Dot[] = generateDots(DOT_COUNT)
+    const maxDistance = Math.max(...dots.map((dot) => dot.distance))
+    const bands = Array.from({ length: COLOR_BANDS }, (_, i) => ({
+      distance: ((i + 0.5) / COLOR_BANDS) * maxDistance,
+      dots: [] as { cos: number; sin: number; distance: number; spread: number }[],
+    }))
+    for (const dot of dots) {
+      const i = Math.min(Math.floor((dot.distance / maxDistance) * COLOR_BANDS), COLOR_BANDS - 1)
+      bands[i].dots.push({
+        cos: Math.cos(dot.angle),
+        sin: Math.sin(dot.angle),
+        distance: dot.distance,
+        spread: dot.spread,
+      })
+    }
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     let width = 0
@@ -215,18 +235,25 @@ export function useBlob(
       return { dx, dy, dist, angle, baseRadius, inside }
     }
 
+    // Stands in for the voice whenever the mic isn't listening.
+    const pointer = new PointerVoice()
+
     const onPointerMove = (e: PointerEvent) => {
       wake()
+      pointer.move(e.clientX, e.clientY)
       const hit = hitTest(e)
       lookTarget = { x: hit.dx + width / 2, y: hit.dy + height / 2 }
       // A pointing hand over the blob hints that it can be poked.
       if (e.pointerType === 'mouse') canvas.style.cursor = hit.inside ? 'pointer' : ''
     }
     const onPointerEnd = (e: PointerEvent) => {
-      if (e.pointerType !== 'mouse') lookTarget = null
+      const lifted = e.pointerType !== 'mouse'
+      if (lifted) lookTarget = null
+      pointer.up(lifted)
     }
     const onPointerLeave = () => {
       lookTarget = null
+      pointer.up(true)
     }
 
     // Squash amount (0 = round) and its speed. The blob squashes along the
@@ -237,6 +264,7 @@ export function useBlob(
 
     const onPointerDown = (e: PointerEvent) => {
       onPointerMove(e)
+      pointer.down(e.clientX, e.clientY)
       const { dist, angle, baseRadius, inside } = hitTest(e)
       if (!inside) return
       // A poke right in the middle squashes it from the top.
@@ -259,10 +287,14 @@ export function useBlob(
       const baseRadius = Math.min(width, height) * BLOB_RADIUS
 
       voice.update(dt)
+      pointer.update(dt, baseRadius)
+      // The mic leads while it's listening. Otherwise the mouse or finger
+      // drives the blob the same way.
+      const sound = voice.status === 'listening' ? voice : pointer
 
       // Sleep and yawn. Wait SLEEP_AFTER with no activity, yawn, then
       // drift off. Activity resets the timer and cancels it all.
-      if (voice.loudness > WAKE_LOUDNESS) wake()
+      if (sound.loudness > WAKE_LOUDNESS) wake()
       let yawn = 0
       let squintTarget = 0
       if (now - lastActivity < SLEEP_AFTER) {
@@ -292,10 +324,10 @@ export function useBlob(
       const stretchX = 1 - stretch / 2
       const stretchY = 1 + stretch
       const dim = 1 - sleep * ASLEEP_DIM
-      const grow = 1 + voice.loudness * VOICE_GROW
-      const spread = voice.loudness * VOICE_SPREAD
-      const presence = smoothstep(0, VOICE_PRESENT, voice.loudness)
-      const lavender = voice.brightness * presence * VOICE_LAVENDER
+      const grow = 1 + sound.loudness * VOICE_GROW
+      const spread = sound.loudness * VOICE_SPREAD
+      const presence = smoothstep(0, VOICE_PRESENT, sound.loudness)
+      const lavender = sound.brightness * presence * VOICE_LAVENDER
 
       const damping = reduceMotion ? POKE_DAMPING_REDUCED : POKE_DAMPING
       for (let left = dt; left > 0; left -= SPRING_STEP) {
@@ -320,18 +352,21 @@ export function useBlob(
       ctx.clearRect(0, 0, width, height)
       ctx.globalAlpha = dim
 
-      for (const dot of dots) {
-        // Same as squish(), inlined because it runs for every dot.
-        const r = dot.distance * baseRadius * scale * grow * (1 + spread * dot.spread)
-        const ox = Math.cos(dot.angle) * r * stretchX
-        const oy = Math.sin(dot.angle) * r * stretchY
-        const a = (ox * pokeCos + oy * pokeSin) * along
-        const b = (oy * pokeCos - ox * pokeSin) * across
-        const x = cx + a * pokeCos - b * pokeSin
-        const y = cy + a * pokeSin + b * pokeCos
-        ctx.fillStyle = blobColor(dot.distance, 1, lavender)
+      for (const band of bands) {
+        ctx.fillStyle = blobColor(band.distance, 1, lavender)
         ctx.beginPath()
-        ctx.arc(x, y, DOT_RADIUS, 0, Math.PI * 2)
+        for (const dot of band.dots) {
+          // Same as squish(), inlined because it runs for every dot.
+          const r = dot.distance * baseRadius * scale * grow * (1 + spread * dot.spread)
+          const ox = dot.cos * r * stretchX
+          const oy = dot.sin * r * stretchY
+          const a = (ox * pokeCos + oy * pokeSin) * along
+          const b = (oy * pokeCos - ox * pokeSin) * across
+          const x = cx + a * pokeCos - b * pokeSin
+          const y = cy + a * pokeSin + b * pokeCos
+          ctx.moveTo(x + DOT_RADIUS, y)
+          ctx.arc(x, y, DOT_RADIUS, 0, Math.PI * 2)
+        }
         ctx.fill()
       }
 

@@ -1,32 +1,25 @@
-# React + TypeScript + Vite
+# Hush
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A small, sleepy blob that listens.
 
-Currently, two official plugins are available:
+Hush is a soft blob made of dots, with two eyes and no mouth. Talk to it and it grows and its dots loosen. A higher voice tints it lavender. Poke it and it wobbles like jelly. Leave it alone for a few seconds and it yawns and falls asleep. Any sound, click or mouse move wakes it with a quiet chime. No mic? Moving or dragging the mouse plays it the same way.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## How I made it
 
-## React Compiler
+I built this with Claude Code. The idea, the look, the sleep and yawn moment, and what to leave out were my calls. Claude wrote most of the code. I tested each step and pushed back when something felt off, like eyes that were hard to see or a colour shift that was too faint.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+It's just React, TypeScript, Vite and a plain 2D canvas, with no extra libraries.
 
-## Expanding the Oxlint configuration
+## What I'd explore next
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+- More voices making more blobs
+- Reacting to music
+- Different moods for a whisper and a shout
+- Dragging to stretch it
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+## Run it
+
 ```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+npm install
+npm run dev
+```
